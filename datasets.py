@@ -22,22 +22,34 @@ def load_imagenet(batch_size: int, test: bool = False, num_workers: int = 2, tra
 
     return _get_dataloders(trainset, testset, batch_size, num_workers, train_ratio), testset.classes
 
-def load_cifar10(batch_size: int, test: bool = False, num_workers: int = 2, train_ratio: float = 0.8):
-    transform = transforms.Compose(
+def load_cifar10(batch_size: int, test: bool = False, num_workers: int = 2, train_ratio: float = 0.8, data_augment: bool = True):
+    base_transform = transforms.Compose(
         [transforms.ToTensor(),
          transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
+    data_augment_transform = transforms.Compose(
+        [
+            transforms.RandomCrop(32),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomAffine(10),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+        ]
+    )
+
     trainset = None
     if not test:
+        train_transform = base_transform
+        if data_augment:
+            train_transform = transforms.Compose([data_augment_transform, base_transform])
         # Download the datasets
         trainset = datasets.CIFAR10(root='./data',
                                     train=True,
                                     download=True,
-                                    transform=transform)
+                                    transform=train_transform)
     testset = datasets.CIFAR10(root='./data',
                                train=False,
                                download=True,
-                               transform=transform)
+                               transform=base_transform)
 
     return _get_dataloders(trainset, testset, batch_size, num_workers, train_ratio), testset.classes
 
