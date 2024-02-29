@@ -16,6 +16,5 @@ class ResnetCifar(nn.Module):
         out_size = self.model.fc.in_features
         self.model.fc = nn.Linear(out_size, self.n_classes)
 
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
