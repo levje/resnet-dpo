@@ -33,7 +33,7 @@ class Trainer(object):
         else:
             raise ValueError(f'Unknown optimizer {optimizer}')
 
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.1)
+        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.1)
         self.best_acc = 0.0
         self.best_epoch = 0.0
         self.learn_hists = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
@@ -49,9 +49,9 @@ class Trainer(object):
                 _, preds = torch.max(outputs, 1)
 
                 running_corrects += torch.sum(preds == labels.data)
-                epoch_acc = running_corrects.float() / self.testsize
+        epoch_acc = running_corrects.float() / self.testsize
 
-                print(f'Test Acc: {epoch_acc:.4f}')
+        print(f'Test Acc: {epoch_acc:.4f}')
 
     def train_model(self, num_epochs=25) -> (nn.Module, dict):
         since = time.time()
@@ -114,7 +114,7 @@ class Trainer(object):
 
                 total_loss += loss.item()
                 total_corrects += torch.sum(preds == labels.data)
-                self.scheduler.step()
+                # self.scheduler.step()
 
                 batch_loss = total_loss / (batch_index + 1)
                 batch_acc = total_corrects.float() / ((batch_index + 1) * inputs.size(0))

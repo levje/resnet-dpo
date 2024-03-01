@@ -9,9 +9,9 @@ class ResnetCifar(nn.Module):
 
         self.model = torchvision.models.resnet34(pretrained=True)
 
-        # Freeze the original model, since for Cifar it should be decent
-        for param in self.model.parameters():
-            param.requires_grad = False
+        # Freeze everything
+        # for param in self.model.parameters():
+        #     param.requires_grad = False
 
         out_size = self.model.fc.in_features
         self.model.fc = nn.Linear(out_size, self.n_classes)
