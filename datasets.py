@@ -1,5 +1,6 @@
 import torch
 from torchvision import datasets, transforms
+from random import randrange
 
 def load_imagenet(batch_size: int, test: bool = False, num_workers: int = 2, train_ratio: float = 0.8):
     transform = transforms.Compose([
@@ -19,6 +20,41 @@ def load_imagenet(batch_size: int, test: bool = False, num_workers: int = 2, tra
     testset = datasets.ImageNet(root='./data/imagenet',
                                 split='val',
                                 transform=transform)
+
+    return _get_dataloders(trainset, testset, batch_size, num_workers, train_ratio), testset.classes
+
+def load_dpo_cifar10(batch_size: int, test: bool = False, num_workers: int = 2, train_ratio: float = 0.8, data_augment: bool = True):
+    base_transform = transforms.Compose(
+        [transforms.ToTensor(),
+         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+    data_augment_transform = transforms.Compose(
+        [
+            transforms.RandomCrop(32),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomAffine(10),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+        ]
+    )
+
+    target_transform = lambda x: (x, randrange(10))
+
+    trainset = None
+    if not test:
+        train_transform = base_transform
+        if data_augment:
+            train_transform = transforms.Compose([data_augment_transform, base_transform])
+        # Download the datasets
+        trainset = datasets.CIFAR10(root='./data',
+                                    train=True,
+                                    download=True,
+                                    transform=train_transform,
+                                    target_transform=target_transform)
+    testset = datasets.CIFAR10(root='./data',
+                               train=False,
+                               download=True,
+                               transform=base_transform,
+                               target_transform=target_transform)
 
     return _get_dataloders(trainset, testset, batch_size, num_workers, train_ratio), testset.classes
 

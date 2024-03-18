@@ -110,3 +110,10 @@ datasets/
 .vscode/
 .idea/
 __MACOSX/
+
+
+# Project-specific directories
+results/
+saved_models/
+logs/
+*.png

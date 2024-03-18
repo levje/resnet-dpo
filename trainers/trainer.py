@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-import torchvision
 import torch.nn as nn
 import time
 from tempfile import TemporaryDirectory
@@ -10,13 +9,14 @@ from tqdm import tqdm
 from utils.torch_utils import get_default_device
 
 class Trainer(object):
-    def __init__(self, model, trainloader, validloader, testloader, criterion, lr, optimizer: str = 'adam'):
+    def __init__(self, model, trainloader, validloader, testloader, criterion, logger, lr, optimizer: str = 'adam'):
         self.device = get_default_device()
         self.model = model
         self.trainloader = trainloader
         self.validloader = validloader
         self.testloader = testloader
         self.criterion = criterion
+        self.logger = logger
 
         self.trainsize = len(self.trainloader.dataset)
         self.validsize = len(self.validloader.dataset)
@@ -33,10 +33,10 @@ class Trainer(object):
         else:
             raise ValueError(f'Unknown optimizer {optimizer}')
 
-        # self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=10, gamma=0.1)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=6, gamma=0.9)
         self.best_acc = 0.0
         self.best_epoch = 0.0
-        self.learn_hists = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
+        self.learn_hists = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': [], 'lr': []}
 
     def test_model(self):
         self.model.eval()
@@ -51,7 +51,8 @@ class Trainer(object):
                 running_corrects += torch.sum(preds == labels.data)
         epoch_acc = running_corrects.float() / self.testsize
 
-        print(f'Test Acc: {epoch_acc:.4f}')
+        self.logger.log(f'Test Acc: {epoch_acc:.4f}')
+        return epoch_acc
 
     def train_model(self, num_epochs=25) -> (nn.Module, dict):
         since = time.time()
@@ -63,19 +64,21 @@ class Trainer(object):
             torch.save(self.model.state_dict(), best_model_params_path)
 
             for epoch in range(num_epochs):
-                print(f'Epoch {epoch}/{num_epochs - 1}')
-                print('-' * 10)
+                lr_value = self.optimizer.param_groups[0]['lr']
+                self.logger.log(f'Epoch {epoch}/{num_epochs - 1} (lr={lr_value})')
+                self.logger.log('-' * 10)
 
                 train_loss, train_acc = self._train_loop_epoch()
-                print(f'Train Loss: {train_loss:.4f} Acc: {train_acc:.4f}')
+                self.logger.log(f'Train Loss: {train_loss:.4f} Acc: {train_acc:.4f}')
 
                 val_loss, val_acc = self._validation_loop()
-                print(f'Validation Loss: {val_loss:.4f} Acc: {val_acc:.4f}')
+                self.logger.log(f'Validation Loss: {val_loss:.4f} Acc: {val_acc:.4f}')
 
                 self.learn_hists['train_loss'].append(train_loss)
                 self.learn_hists['train_acc'].append(train_acc)
                 self.learn_hists['val_loss'].append(val_loss)
                 self.learn_hists['val_acc'].append(val_acc)
+                self.learn_hists['lr'].append(lr_value)
 
                 # Save the best model found so far. Helpful if training is interrupted or if there's
                 # overfitting along the way
@@ -85,8 +88,8 @@ class Trainer(object):
                     torch.save(self.model.state_dict(), best_model_params_path)
 
             time_elapsed = time.time() - since
-            print(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
-            print(f'Best val Acc: {self.best_acc:4f}')
+            self.logger.log(f'Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
+            self.logger.log(f'Best val Acc: {self.best_acc:4f}')
 
             # load best model weights
             self.model.load_state_dict(torch.load(best_model_params_path))
@@ -114,18 +117,29 @@ class Trainer(object):
 
                 total_loss += loss.item()
                 total_corrects += torch.sum(preds == labels.data)
-                # self.scheduler.step()
 
                 batch_loss = total_loss / (batch_index + 1)
                 batch_acc = total_corrects.float() / ((batch_index + 1) * inputs.size(0))
+
+                # Print sum over all weights of the model
+                # print(f'Weights sum: {np.sum([torch.sum(p).item() for p in self.model.parameters()])}')
+                # params = self._get_models_weights_sum()
+                # print(f'Params at it{batch_index}: {params}')
 
                 pbar.update()
                 pbar.set_postfix({'loss': batch_loss, 'acc': batch_acc})
 
         average_loss = total_loss / len(self.trainloader)
         average_acc = total_corrects.float() / len(self.trainloader.dataset)
+        
+        self.scheduler.step()
 
-        return average_loss, average_acc
+        return average_loss, average_acc.item()
+
+    def _get_models_weights_sum(self):
+        model_params = self.model.state_dict()
+        model_weights_sum = sum([torch.sum(model_params[k]) for k in model_params])
+        return model_weights_sum
 
     def _validation_loop(self):
         self.model.eval()
@@ -147,4 +161,4 @@ class Trainer(object):
         epoch_loss = running_loss / self.trainsize
         epoch_acc = running_corrects.float() / self.trainsize
 
-        return epoch_loss, epoch_acc
+        return epoch_loss, epoch_acc.item()
