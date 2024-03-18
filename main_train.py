@@ -1,6 +1,6 @@
 import argparse
 from trainers.trainer import Trainer
-from resnet_cifar import ResnetCifar
+from resnet_cifar import ResnetCifar, ResnetCifarDropout
 from datasets import load_cifar10
 import torch
 from utils.logger import Logger
@@ -18,8 +18,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs to train the model')
     parser.add_argument('--log_dir', type=str, default='logs', help='Directory to save the logs')
     parser.add_argument('--log_interval', type=int, default=2, help='Number of batches to wait before logging')
-    parser.add_argument('--lr', type=float, default=0.01, help='Learning rate for the optimizer')
+    parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate for the optimizer')
     parser.add_argument('--results_dir', type=str, default='results', help='Directory to save the results')
+    parser.add_argument('--force', action='store_true', help='Force overwrite the results directory')
     return parser
 
 def main(args):
@@ -30,12 +31,18 @@ def main(args):
     exp_name = args.exp_name
     lr = args.lr
     results_dir = os.path.join(args.results_dir, exp_name)
+    force = args.force
 
+    if force and os.path.exists(results_dir):
+        # remove the directory and its contents
+        os.system(f'rm -rf {results_dir}')
+    
     os.mkdir(results_dir)
 
 
     lr_string = str(lr).replace('.', '')
-    model_save_file = f'{results_dir}/dpo_base.pt'
+    model_save_file = f'{results_dir}/dpo_ref.pt'
+    policy_save_file = f'{results_dir}/dpo_policy.pt'
     log_file = f'{results_dir}/resnet_cifar10_e{num_epochs}_{lr_string}_{exp_name}.log'
     logger = Logger(log_file)
 
@@ -43,7 +50,7 @@ def main(args):
     logger.log("CIFAR {} classes: {}".format(len(classes), classes))
     logger.log("Train size: {}, Valid size: {}, Test size: {}".format(len(trainloader), len(validloader), len(testloader)))
 
-    model = ResnetCifar(n_classes=len(classes))
+    model = ResnetCifarDropout(n_classes=len(classes))
     device = get_default_device()
     model = model.to(device)
     loss_func = torch.nn.CrossEntropyLoss()
@@ -54,14 +61,30 @@ def main(args):
 
     model = model.to("cpu")
 
+    logger.log('Saving DPO Reference')
     logger.log(f'Best epoch: {best_epoch}/{num_epochs}')
     logger.log(f'Best validation accuracy: {learn_hists["val_acc"][best_epoch]:.4f}')
     logger.log(f'Best training accuracy: {learn_hists["train_acc"][best_epoch]:.4f}')
     logger.log(f'Test accuracy: {test_acc:.4f}')
     logger.log(f'Saving model to {model_save_file}')
     torch.save(model.state_dict(), model_save_file)
+    save_learn_hists(learn_hists, f'{results_dir}/learn_hists_{exp_name}_reference.json', f'{exp_name} Reference - {num_epochs} epochs')
 
-    save_learn_hists(learn_hists, f'{results_dir}/learn_hists_{exp_name}.json', f'{exp_name} - {num_epochs} epochs')
+    # Retrain the model to get a different policy for DPO
+    trainer.model = trainer.model.to(device)
+    model, learn_hists, best_epoch = trainer.train_model(num_epochs=1)
+    test_acc = trainer.test_model()
+    model = model.to("cpu")
+
+    logger.log('Saving DPO Policy')
+    logger.log(f'Best epoch: {best_epoch}/{num_epochs}')
+    logger.log(f'Best validation accuracy: {learn_hists["val_acc"][best_epoch]:.4f}')
+    logger.log(f'Best training accuracy: {learn_hists["train_acc"][best_epoch]:.4f}')
+    logger.log(f'Test accuracy: {test_acc:.4f}')
+    logger.log(f'Saving model to {policy_save_file}')
+    torch.save(model.state_dict(), policy_save_file)
+
+    save_learn_hists(learn_hists, f'{results_dir}/learn_hists_{exp_name}_policy.json', f'{exp_name} Policy - {num_epochs+1} epochs')
 
 
 

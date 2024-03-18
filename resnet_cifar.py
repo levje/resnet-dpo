@@ -17,11 +17,15 @@ class ResnetCifar(nn.Module):
         # for param in self.model.parameters():
         #     param.requires_grad = False
 
-        out_size = self.model.fc.in_features
-        self.model.fc = nn.Linear(out_size, self.n_classes)
+        self.model = self._modify_model(self.model, self.n_classes)
 
         if model_path is not None:
-            self.model.load_state_dict(torch.load(model_path)) # TODO: Why are we using strict=False?
+            self.model.load_state_dict(torch.load(model_path))
+
+    def _modify_model(self, model: torchvision.models.ResNet, n_classes: int) -> torchvision.models.ResNet:
+        out_size = model.fc.in_features
+        model.fc = nn.Linear(out_size, n_classes)
+        return model
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
@@ -31,3 +35,17 @@ class ResnetCifar(nn.Module):
     
     def load_state_dict(self, state_dict):
         self.model.load_state_dict(state_dict)
+
+class ResnetCifarDropout(ResnetCifar):
+
+    def __init__(self, n_classes: int, model_path: str = None):
+        super().__init__(n_classes, model_path)
+
+    def _modify_model(self, model: torchvision.models.ResNet, n_classes: int) -> torchvision.models.ResNet:
+        model.fc = nn.Sequential(
+            nn.Dropout(0.1),
+            nn.Linear(model.fc.in_features, model.fc.in_features//2),
+            nn.Dropout(0.1),
+            nn.Linear(model.fc.in_features//2, n_classes)
+        )
+        return model

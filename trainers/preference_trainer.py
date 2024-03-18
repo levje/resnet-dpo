@@ -18,6 +18,7 @@ class PreferenceTrainer(object):
         self.testloader = testloader
         self.criterion = criterion
         self.logger = logger
+        self.max_grad_norm = 10.0
 
         self.trainsize = len(self.trainloader.dataset)
         self.validsize = len(self.validloader.dataset)
@@ -40,9 +41,19 @@ class PreferenceTrainer(object):
         self.learn_hists = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': [], 'lr': []}
 
         # Freeze the reference model, since it doesn't require training.
-        self.reference_model.eval()
-        for param in self.reference_model.parameters():
-            param.requires_grad = False
+        # self.reference_model.eval()
+        # for param in self.reference_model.parameters():
+            # param.requires_grad = False
+        
+        self.reference_model = self._disable_dropout(self.reference_model)
+        self.model = self._disable_dropout(self.model)
+        
+
+    def _disable_dropout(self, model):
+        for module in model.modules():
+            if isinstance(module, nn.Dropout):
+                module.p = 0
+        return model
 
 
     def train_model(self, num_epochs=25) -> (nn.Module, dict):
@@ -87,16 +98,39 @@ class PreferenceTrainer(object):
 
         return self.model, self.learn_hists, self.best_epoch
 
-    def _get_models_weights_sum(self):
-        model_params = self.model.state_dict()
-        model_weights_sum = sum([torch.sum(model_params[k]) for k in model_params])
-        return model_weights_sum
+    def _get_models_weights_sum(self, model, verbose=False):
+        # model_params = model.state_dict()
+        # model_weights_sum = sum([torch.sum(model_params[k]) for k in model_params])
+
+        total = 0
+
+        if verbose:
+            print('='   * 10)
+            print('Model weights sum')
+            print('-'   * 10)
+
+
+        for name, param in model.named_parameters():
+            val = param.data.abs().sum().item()
+            # grad = param.grad.data.sum().item()
+            if verbose:
+                print(f'{name}: {val}')
+
+            total += val        
+
+        if verbose:
+            print('='   * 10)
+
+        return total
 
     def _train_loop_epoch(self):
         self.model.train()
 
         total_loss = 0.0
         total_corrects = 0
+
+        previous_sum_ref = self._get_models_weights_sum(self.reference_model)
+        previous_sum_model = self._get_models_weights_sum(self.model)
 
         with tqdm(range(len(self.trainloader))) as pbar:
             for batch_index, (inputs, labels) in enumerate(self.trainloader):
@@ -114,7 +148,22 @@ class PreferenceTrainer(object):
                 losses, rewards = self.criterion(logps, ref_logps, yw_idxs, yl_idxs)
                 loss = torch.mean(losses)
                 loss.backward()
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                 self.optimizer.step()
+
+                # Check if the weights are changing for debugging purposes
+
+                ref_weights_sum = self._get_models_weights_sum(self.reference_model, verbose=False)
+                model_weights_sum = self._get_models_weights_sum(self.model, verbose=False)
+
+                # print('Reference weights delta:', ref_weights_sum - previous_sum_ref)
+                # print('Model weights delta:', model_weights_sum - previous_sum_model)
+                # print('Grad norm:', grad_norm)
+
+                previous_sum_ref = ref_weights_sum
+                previous_sum_model = model_weights_sum
+                
+                # End of debugging
 
                 total_loss += loss.item()
                 total_corrects += torch.sum(preds == yw_idxs.data)
@@ -135,6 +184,10 @@ class PreferenceTrainer(object):
     def run_logps(self, inputs):
         outputs = self.model(inputs)
         ref_outputs = self.reference_model(inputs)
+
+        # Get regular probs for debugging purposes
+        # probs = torch.nn.functional.softmax(outputs, dim=1)
+        # ref_probs = torch.nn.functional.softmax(ref_outputs, dim=1)
 
         # Select log probs of winning and losers from 
         logps = torch.nn.functional.log_softmax(outputs, dim=1)
