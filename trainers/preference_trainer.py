@@ -9,7 +9,7 @@ from tqdm import tqdm
 from utils.torch_utils import get_default_device
 
 class PreferenceTrainer(object):
-    def __init__(self, model, reference_model, trainloader, validloader, testloader, criterion, logger, lr, optimizer: str = 'adam'):
+    def __init__(self, model, reference_model, trainloader, validloader, testloader, criterion, logger, lr, optimizer: str = 'adam', do_polyak: bool = False):
         self.device = get_default_device()
         self.reference_model = reference_model
         self.model = model
@@ -19,6 +19,7 @@ class PreferenceTrainer(object):
         self.criterion = criterion
         self.logger = logger
         self.max_grad_norm = 10.0
+        self.do_polyak = do_polyak
 
         self.trainsize = len(self.trainloader.dataset)
         self.validsize = len(self.validloader.dataset)
@@ -46,8 +47,8 @@ class PreferenceTrainer(object):
             # param.requires_grad = False
         
         self.reference_model = self._disable_dropout(self.reference_model)
+        self.reference_model = torch.optim.swa_utils.AveragedModel(self.reference_model, avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(0.999))
         self.model = self._disable_dropout(self.model)
-        
 
     def _disable_dropout(self, model):
         for module in model.modules():
@@ -56,7 +57,7 @@ class PreferenceTrainer(object):
         return model
 
 
-    def train_model(self, num_epochs=25) -> (nn.Module, dict):
+    def train_model(self, num_epochs=25):
         since = time.time()
 
         # Create a temporary directory to save training checkpoints
@@ -98,39 +99,11 @@ class PreferenceTrainer(object):
 
         return self.model, self.learn_hists, self.best_epoch
 
-    def _get_models_weights_sum(self, model, verbose=False):
-        # model_params = model.state_dict()
-        # model_weights_sum = sum([torch.sum(model_params[k]) for k in model_params])
-
-        total = 0
-
-        if verbose:
-            print('='   * 10)
-            print('Model weights sum')
-            print('-'   * 10)
-
-
-        for name, param in model.named_parameters():
-            val = param.data.abs().sum().item()
-            # grad = param.grad.data.sum().item()
-            if verbose:
-                print(f'{name}: {val}')
-
-            total += val        
-
-        if verbose:
-            print('='   * 10)
-
-        return total
-
     def _train_loop_epoch(self):
         self.model.train()
 
         total_loss = 0.0
         total_corrects = 0
-
-        previous_sum_ref = self._get_models_weights_sum(self.reference_model)
-        previous_sum_model = self._get_models_weights_sum(self.model)
 
         with tqdm(range(len(self.trainloader))) as pbar:
             for batch_index, (inputs, labels) in enumerate(self.trainloader):
@@ -150,20 +123,9 @@ class PreferenceTrainer(object):
                 loss.backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                 self.optimizer.step()
+                if self.do_polyak:
+                    self._polyak_update()
 
-                # Check if the weights are changing for debugging purposes
-
-                ref_weights_sum = self._get_models_weights_sum(self.reference_model, verbose=False)
-                model_weights_sum = self._get_models_weights_sum(self.model, verbose=False)
-
-                # print('Reference weights delta:', ref_weights_sum - previous_sum_ref)
-                # print('Model weights delta:', model_weights_sum - previous_sum_model)
-                # print('Grad norm:', grad_norm)
-
-                previous_sum_ref = ref_weights_sum
-                previous_sum_model = model_weights_sum
-                
-                # End of debugging
 
                 total_loss += loss.item()
                 total_corrects += torch.sum(preds == yw_idxs.data)
@@ -181,13 +143,13 @@ class PreferenceTrainer(object):
 
         return average_loss, average_acc.item()
     
+    def _polyak_update(self):
+        for param, ref_param in zip(self.model.parameters(), self.reference_model.parameters()):
+            ref_param.data.mul_(0.999).add_(param.data, alpha=0.001)
+
     def run_logps(self, inputs):
         outputs = self.model(inputs)
         ref_outputs = self.reference_model(inputs)
-
-        # Get regular probs for debugging purposes
-        # probs = torch.nn.functional.softmax(outputs, dim=1)
-        # ref_probs = torch.nn.functional.softmax(ref_outputs, dim=1)
 
         # Select log probs of winning and losers from 
         logps = torch.nn.functional.log_softmax(outputs, dim=1)

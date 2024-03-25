@@ -17,6 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('policy_model_path', type=str, help='Path to the policy model')
     parser.add_argument('--save_dir', type=str, default='saved_models', help='Directory to save the model')
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size for training')
+    parser.add_argument('--do_polyak', action='store_true', help='Use Polyak averaging.')
     parser.add_argument('--num_workers', type=int, default=2, help='Number of workers for data loading')
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs to train the model')
     parser.add_argument('--log_dir', type=str, default='logs', help='Directory to save the logs')
@@ -28,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(args):
     batch_size = args.batch_size
+    do_polyak = args.do_polyak
     num_workers = args.num_workers
     num_epochs = args.num_epochs
     log_interval = args.log_interval
@@ -56,10 +58,10 @@ def main(args):
 
     device = get_default_device()
     model = ResnetCifarDropout(n_classes=len(classes), model_path=policy_model_path).to(device)
-    ref_model = ResnetCifarDropout(n_classes=len(classes), model_path=ref_model_path).to(device)
-    loss_func = DPOLoss(beta=0.2)
+    ref_model = ResnetCifarDropout(n_classes=len(classes), model_path=policy_model_path).to(device)
+    loss_func = DPOLoss(beta=0.1)
 
-    trainer = PreferenceTrainer(model, ref_model, trainloader, validloader, testloader, loss_func, logger=logger, lr=lr, optimizer='adam')
+    trainer = PreferenceTrainer(model, ref_model, trainloader, validloader, testloader, loss_func, logger=logger, lr=lr, optimizer='adam', do_polyak=do_polyak)
     model, learn_hists, best_epoch = trainer.train_model(num_epochs=num_epochs)
     test_acc = trainer.test_model()
 
