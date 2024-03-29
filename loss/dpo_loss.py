@@ -2,6 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+# Implementation is based on the algorithm given in the original DPO paper with small tweaks
+# Rafailov, R., Sharma, A., Mitchell, E., Manning, C. D., Ermon, S., & Finn, C. (2024). Direct preference optimization: Your language model is secretly a reward model. Advances in Neural Information Processing Systems, 36.
+# https://arxiv.org/abs/1905.12616
 class DPOLoss(object):
 
     def __init__(self, beta=0.1):
