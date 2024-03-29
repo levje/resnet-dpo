@@ -1,6 +1,6 @@
 import argparse
 from trainers.trainer import Trainer
-from resnet_cifar import ResnetCifar, ResnetCifarDropout
+from models.resnet_cifar import ResnetCifar, ResnetCifarDropout
 from data.datasets import load_cifar10
 import torch
 from utils.logger import Logger

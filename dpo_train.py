@@ -1,8 +1,8 @@
 import argparse
 from trainers.preference_trainer import PreferenceTrainer
-from resnet_cifar import ResnetCifar, ResnetCifarDropout
+from models.resnet_cifar import ResnetCifar, ResnetCifarDropout
 from data.datasets import load_dpo_cifar10
-from dpo_loss import DPOLoss
+from loss.dpo_loss import DPOLoss
 import torch
 from utils.logger import Logger
 import os
