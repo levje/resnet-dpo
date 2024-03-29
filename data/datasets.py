@@ -2,6 +2,7 @@ import torch
 from torchvision import datasets, transforms
 from random import randrange
 
+# You need to download the imagenet dataset yourself and put it in the root directory.
 def load_imagenet(batch_size: int, test: bool = False, num_workers: int = 2, train_ratio: float = 0.8):
     transform = transforms.Compose([
         transforms.Resize(256),
@@ -13,11 +14,11 @@ def load_imagenet(batch_size: int, test: bool = False, num_workers: int = 2, tra
     # Download the datasets
     trainset = None
     if not test:
-        trainset = datasets.ImageNet(root='./data/imagenet',
+        trainset = datasets.ImageNet(root='./imagenet',
                                      transform=transform,
                                      train=True)
 
-    testset = datasets.ImageNet(root='./data/imagenet',
+    testset = datasets.ImageNet(root='./imagenet',
                                 split='val',
                                 transform=transform)
 
@@ -45,12 +46,12 @@ def load_dpo_cifar10(batch_size: int, test: bool = False, num_workers: int = 2, 
         if data_augment:
             train_transform = transforms.Compose([data_augment_transform, base_transform])
         # Download the datasets
-        trainset = datasets.CIFAR10(root='./data',
+        trainset = datasets.CIFAR10(root='.',
                                     train=True,
                                     download=True,
                                     transform=train_transform,
                                     target_transform=target_transform)
-    testset = datasets.CIFAR10(root='./data',
+    testset = datasets.CIFAR10(root='.',
                                train=False,
                                download=True,
                                transform=base_transform,
@@ -78,11 +79,11 @@ def load_cifar10(batch_size: int, test: bool = False, num_workers: int = 2, trai
         if data_augment:
             train_transform = transforms.Compose([data_augment_transform, base_transform])
         # Download the datasets
-        trainset = datasets.CIFAR10(root='./data',
+        trainset = datasets.CIFAR10(root='.',
                                     train=True,
                                     download=True,
                                     transform=train_transform)
-    testset = datasets.CIFAR10(root='./data',
+    testset = datasets.CIFAR10(root='.',
                                train=False,
                                download=True,
                                transform=base_transform)
