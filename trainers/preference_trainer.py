@@ -9,7 +9,7 @@ from tqdm import tqdm
 from utils.torch_utils import get_default_device
 
 class PreferenceTrainer(object):
-    def __init__(self, model, reference_model, trainloader, validloader, testloader, criterion, logger, lr, optimizer: str = 'adam', do_polyak: bool = False):
+    def __init__(self, model, reference_model, trainloader, validloader, testloader, criterion, logger, lr, optimizer: str = 'adam', do_polyak: bool = False, do_copy: bool = False):
         self.device = get_default_device()
         self.reference_model = reference_model
         self.model = model
@@ -20,6 +20,7 @@ class PreferenceTrainer(object):
         self.logger = logger
         self.max_grad_norm = 10.0
         self.do_polyak = do_polyak
+        self.do_copy = do_copy
 
         self.trainsize = len(self.trainloader.dataset)
         self.validsize = len(self.validloader.dataset)
@@ -40,22 +41,9 @@ class PreferenceTrainer(object):
         self.best_acc = 0.0
         self.best_epoch = 0.0
         self.learn_hists = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': [], 'lr': []}
-
-        # Freeze the reference model, since it doesn't require training.
-        # self.reference_model.eval()
-        # for param in self.reference_model.parameters():
-            # param.requires_grad = False
         
         self.reference_model = self._disable_dropout(self.reference_model)
-        self.reference_model = torch.optim.swa_utils.AveragedModel(self.reference_model, avg_fn=torch.optim.swa_utils.get_ema_multi_avg_fn(0.999))
         self.model = self._disable_dropout(self.model)
-
-    def _disable_dropout(self, model):
-        for module in model.modules():
-            if isinstance(module, nn.Dropout):
-                module.p = 0
-        return model
-
 
     def train_model(self, num_epochs=25):
         since = time.time()
@@ -118,14 +106,13 @@ class PreferenceTrainer(object):
                 yw_idxs = y_labels
                 yl_idxs = l_labels
 
-                losses, rewards = self.criterion(logps, ref_logps, yw_idxs, yl_idxs)
+                losses, _ = self.criterion(logps, ref_logps, yw_idxs, yl_idxs)
                 loss = torch.mean(losses)
                 loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
                 self.optimizer.step()
                 if self.do_polyak:
                     self._polyak_update()
-
 
                 total_loss += loss.item()
                 total_corrects += torch.sum(preds == yw_idxs.data)
@@ -139,13 +126,44 @@ class PreferenceTrainer(object):
         average_loss = total_loss / len(self.trainloader)
         average_acc = total_corrects.float() / len(self.trainloader.dataset)
         
+        if self.do_copy:
+            self._copy_update()
+
         self.scheduler.step()
 
         return average_loss, average_acc.item()
     
+    def test_model(self):
+        return self._test_model_impl(self.model)
+    
+    def test_reference_model(self):
+        return self._test_model_impl(self.reference_model)
+    
     def _polyak_update(self):
-        for param, ref_param in zip(self.model.parameters(), self.reference_model.parameters()):
-            ref_param.data.mul_(0.999).add_(param.data, alpha=0.001)
+        beta = 0.001 #The interpolation parameter    
+        model_params = self.model.named_parameters()
+        ref_params = self.reference_model.named_parameters()
+        dict_params2 = dict(ref_params)
+
+        for model_name, model_param in model_params:
+            if model_name in dict_params2:
+                dict_params2[model_name].data.copy_(beta*model_param.data + (1-beta)*dict_params2[model_name].data)
+
+    def _copy_update(self):
+        print('Copying policy parameters to reference model.')
+        model_params = self.model.named_parameters()
+        ref_params = self.reference_model.named_parameters()
+        dict_params2 = dict(ref_params)
+
+        for model_name, model_param in model_params:
+            if model_name in dict_params2:
+                dict_params2[model_name].data.copy_(model_param.data)
+
+    def _disable_dropout(self, model):
+        for module in model.modules():
+            if isinstance(module, nn.Dropout):
+                module.p = 0
+        return model
 
     def run_logps(self, inputs):
         outputs = self.model(inputs)
@@ -178,12 +196,6 @@ class PreferenceTrainer(object):
         epoch_acc = running_corrects.float() / self.trainsize
 
         return epoch_loss, epoch_acc.item()
-
-    def test_model(self):
-        return self._test_model_impl(self.model)
-    
-    def test_reference_model(self):
-        return self._test_model_impl(self.reference_model)
 
     def _test_model_impl(self, tested_model):
         tested_model.eval()

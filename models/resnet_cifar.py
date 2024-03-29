@@ -12,10 +12,6 @@ class ResnetCifar(nn.Module):
             self.model = torchvision.models.resnet50()
         else:
             self.model = torchvision.models.resnet50(weights=torchvision.models.ResNet50_Weights.DEFAULT)
-        
-        # Freeze everything
-        # for param in self.model.parameters():
-        #     param.requires_grad = False
 
         self.model = self._modify_model(self.model, self.n_classes)
 

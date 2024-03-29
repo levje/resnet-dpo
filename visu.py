@@ -3,6 +3,9 @@ from utils.utils import load_learn_hists, visualize_learn_hists
 import os
 import argparse
 
+# Note: This script is just a very quick way of plotting the learning histories of different experiments.
+#       Optimisation is still to be made to display the learning histories in a more readable way (i.e. accurate legends, etc.)
+
 def generate_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Visualize the learning histories of different experiments')
     parser.add_argument('exp_names', type=str, nargs='+', help='Paths to the learning histories files')
@@ -27,7 +30,7 @@ def main(args):
     learn_hists = [load_learn_hists(exp_json_path) for exp_json_path in experiments_paths]
     print(learn_hists)
     visualize_learn_hists(learn_hists, args.save_path)
-    
+
 
 if __name__ == '__main__':
     parser = generate_argument_parser()
